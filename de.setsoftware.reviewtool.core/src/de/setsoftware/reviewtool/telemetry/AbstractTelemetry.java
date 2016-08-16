@@ -3,10 +3,9 @@ package de.setsoftware.reviewtool.telemetry;
 import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
+import de.setsoftware.reviewtool.base.Logger;
 import de.setsoftware.reviewtool.base.ReviewtoolException;
 
 /**
@@ -14,139 +13,46 @@ import de.setsoftware.reviewtool.base.ReviewtoolException;
  */
 public abstract class AbstractTelemetry {
 
-    private String currentTicketKey;
+    private String currentSessionId;
     private String currentUser;
+    private long lastId;
 
-    /**
-     * Sends the event that a review has been started at the current moment in time.
-     */
-    public final void reviewStarted(String ticketKey, String reviewer, int round,
-            int numberOfTours, int numberOfStops, int numberOfFragments,
-            int numberOfAddedLines, int numberOfRemovedLines) {
-        this.currentTicketKey = ticketKey;
-        this.currentUser = reviewer;
-        this.putData(
-                "reviewStarted",
-                ticketKey,
-                reviewer,
-                map("round", Integer.toString(round),
-                    "cntTours", Integer.toString(numberOfTours),
-                    "cntStops", Integer.toString(numberOfStops),
-                    "cntFragments", Integer.toString(numberOfFragments),
-                    "cntAddedLines", Integer.toString(numberOfAddedLines),
-                    "cntRemovedLines", Integer.toString(numberOfRemovedLines)));
+    public AbstractTelemetry() {
+        Logger.debug("create telemetry " + this.toString());
     }
 
     /**
-     * Sends the event that a remark fixing has been started at the current moment in time.
+     * Sets the session key for the following events.For each call, a new session ID is generated.
      */
-    public final void fixingStarted(String ticketKey, String reviewer, int round) {
-        this.currentTicketKey = ticketKey;
-        this.currentUser = reviewer;
-        this.putData(
-                "fixingStarted",
-                ticketKey,
-                reviewer,
-                map("round", Integer.toString(round)));
+    public void registerSession(String ticketKey, String user, String type, int round) {
+        Logger.debug("registerSession " + user + ", " + ticketKey + ", " + type + round + " at " + this);
+        if (user == null) {
+            throw new AssertionError("user is null for ticket key " + ticketKey);
+        }
+        this.currentSessionId = ticketKey + "," + type + "," + round + "," + Long.toHexString(this.getSessionUid());
+        this.currentUser = user;
+    }
+
+    private long getSessionUid() {
+        long uid = System.currentTimeMillis();
+        if (uid == this.lastId) {
+            uid++;
+        }
+        this.lastId = uid;
+        return uid;
     }
 
     /**
-     * Sends the event that a review has been finished at the current moment in time.
+     * Generic log method.
+     * Instead of using this method, its better to use a {@link TelemetryEventBuilder} (created by
+     * {@link de.setsoftware.reviewtool.telemetry.Telemetry.#event(type)}).
      */
-    public final void reviewEnded(String ticketKey, String reviewer, int round, String endTransition) {
+    public void log(String eventType, Map<String, String> params) {
         this.putData(
-                "reviewEnded",
-                ticketKey,
-                reviewer,
-                map(
-                        "round", Integer.toString(round),
-                        "endTransition", endTransition));
-    }
-
-    /**
-     * Sends the event that a remark fixing has been finished at the current moment in time.
-     */
-    public final void fixingEnded(String ticketKey, String reviewer, int round) {
-        this.putData(
-                "fixingEnded",
-                ticketKey,
-                reviewer,
-                map("round", Integer.toString(round)));
-    }
-
-    /**
-     * Sends the event that a review remark has been created at the current moment in time.
-     */
-    public final void remarkCreated(String remarkType, String resource, int line) {
-        this.putData(
-                "remarkCreated",
-                this.currentTicketKey,
+                eventType,
+                this.currentSessionId,
                 this.currentUser,
-                map(
-                    "remarkType", remarkType,
-                    "resource", resource,
-                    "line", Integer.toString(line)));
-
-    }
-
-    public final void resolutionComment(String resource, int line) {
-        this.logResolution("resolutionComment", resource, line);
-    }
-
-    public final void resolutionDelete(String resource, int line) {
-        this.logResolution("resolutionDelete", resource, line);
-    }
-
-    public final void resolutionFixed(String resource, int line) {
-        this.logResolution("resolutionFixed", resource, line);
-    }
-
-    public final void resolutionQuestion(String resource, int line) {
-        this.logResolution("resolutionQuestion", resource, line);
-    }
-
-    public final void resolutionWontFix(String resource, int line) {
-        this.logResolution("resolutionWontFix", resource, line);
-    }
-
-    private void logResolution(String resolutionType, String resource, int line) {
-        this.putData(
-                resolutionType,
-                this.currentTicketKey,
-                this.currentUser,
-                map(
-                    "resource", resource,
-                    "line", Integer.toString(line)));
-    }
-
-    public void toursMerged(List<Integer> mergedTourIndices, int numberOfTours, int numberOfStops) {
-        this.putData(
-                "toursMerged",
-                this.currentTicketKey,
-                this.currentUser,
-                map(
-                    "mergedTourIndices", mergedTourIndices.toString(),
-                    "newNumberOfTours", Integer.toString(numberOfTours),
-                    "newNumberOfStops", Integer.toString(numberOfStops)));
-    }
-
-    public void tourActivated(int index) {
-        this.putData(
-                "tourActivated",
-                this.currentTicketKey,
-                this.currentUser,
-                map(
-                    "tourIndex", Integer.toString(index)));
-    }
-
-    public void jumpedTo(String resource, int line) {
-        this.putData(
-                "jumpedTo",
-                this.currentTicketKey,
-                this.currentUser,
-                map(
-                    "resource", resource,
-                    "line", Integer.toString(line)));
+                params);
     }
 
     /**
@@ -170,15 +76,6 @@ public abstract class AbstractTelemetry {
         } catch (final NoSuchAlgorithmException | UnsupportedEncodingException e) {
             throw new ReviewtoolException(e);
         }
-    }
-
-    private static Map<String, String> map(String... keysAndValues) {
-        assert keysAndValues.length % 2 == 0;
-        final LinkedHashMap<String, String> ret = new LinkedHashMap<>();
-        for (int i = 0; i < keysAndValues.length; i += 2) {
-            ret.put(keysAndValues[i], keysAndValues[i + 1]);
-        }
-        return ret;
     }
 
     /**

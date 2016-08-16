@@ -8,15 +8,19 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map.Entry;
 
-import org.eclipse.core.resources.IResource;
+import org.eclipse.core.runtime.IPath;
 
 import de.setsoftware.reviewtool.base.Multimap;
+import de.setsoftware.reviewtool.telemetry.TelemetryEventBuilder;
+import de.setsoftware.reviewtool.telemetry.TelemetryParamSource;
 
 /**
  * A tour through a part of the changes. The consists of stops in a certain order, with
  * each stop belonging to some part of the change.
  * <p/>
  * The Tour+Stop metaphor is borrowed from the JTourBus tool.
+ * <p/>
+ * A tour is immutable.
  */
 public class Tour {
 
@@ -33,8 +37,23 @@ public class Tour {
         return "Tour: " + this.description + ", " + this.stops;
     }
 
+    @Override
+    public int hashCode() {
+        return this.description.hashCode() + this.stops.size();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof Tour)) {
+            return false;
+        }
+        final Tour t = (Tour) o;
+        return this.description.equals(t.description)
+            && this.stops.equals(t.stops);
+    }
+
     public List<Stop> getStops() {
-        return this.stops;
+        return Collections.unmodifiableList(this.stops);
     }
 
     public String getDescription() {
@@ -123,14 +142,14 @@ public class Tour {
      * The closeness measure is tweaked to (hopefully) capture the users intention as good as possible
      * for cases where he did not click directly on a stop.
      */
-    public Stop findNearestStop(IResource resource, int line) {
+    public Stop findNearestStop(IPath absoluteResourcePath, int line) {
         if (this.stops.isEmpty()) {
             return null;
         }
         Stop best = null;
         int bestDist = Integer.MAX_VALUE;
         for (final Stop stop : this.stops) {
-            final int candidateDist = this.calculateDistance(stop, resource, line);
+            final int candidateDist = this.calculateDistance(stop, absoluteResourcePath, line);
             if (candidateDist < bestDist) {
                 best = stop;
                 bestDist = candidateDist;
@@ -139,8 +158,8 @@ public class Tour {
         return best;
     }
 
-    private int calculateDistance(Stop stop, IResource resource, int line) {
-        if (!stop.getMostRecentFile().determineResource().equals(resource)) {
+    private int calculateDistance(Stop stop, IPath resource, int line) {
+        if (!stop.getMostRecentFile().toLocalPath().equals(resource)) {
             return Integer.MAX_VALUE;
         }
 
@@ -160,16 +179,16 @@ public class Tour {
         }
     }
 
-    public int getNumberOfStops() {
-        return this.stops.size();
+    public int getNumberOfStops(boolean onlyRelevant) {
+        return this.filterRelevance(onlyRelevant).size();
     }
 
     /**
      * Returns the count of all fragments in the contained stops.
      */
-    public int getNumberOfFragments() {
+    public int getNumberOfFragments(boolean onlyRelevant) {
         int ret = 0;
-        for (final Stop s : this.stops) {
+        for (final Stop s : this.filterRelevance(onlyRelevant)) {
             ret += s.getNumberOfFragments();
         }
         return ret;
@@ -179,9 +198,9 @@ public class Tour {
      * Returns the total count of all added lines (left-hand side of a fragment).
      * A change is counted as both remove and add.
      */
-    public int getNumberOfAddedLines() {
+    public int getNumberOfAddedLines(boolean onlyRelevant) {
         int ret = 0;
-        for (final Stop s : this.stops) {
+        for (final Stop s : this.filterRelevance(onlyRelevant)) {
             ret += s.getNumberOfAddedLines();
         }
         return ret;
@@ -191,12 +210,70 @@ public class Tour {
      * Returns the total count of all removed lines (left-hand side of a fragment).
      * A change is counted as both remove and add.
      */
-    public int getNumberOfRemovedLines() {
+    public int getNumberOfRemovedLines(boolean onlyRelevant) {
         int ret = 0;
-        for (final Stop s : this.stops) {
+        for (final Stop s : this.filterRelevance(onlyRelevant)) {
             ret += s.getNumberOfRemovedLines();
         }
         return ret;
+    }
+
+    private List<Stop> filterRelevance(boolean onlyRelevant) {
+        if (onlyRelevant) {
+            final List<Stop> ret = new ArrayList<>();
+            for (final Stop s : this.stops) {
+                if (!s.isIrrelevantForReview()) {
+                    ret.add(s);
+                }
+            }
+            return ret;
+        } else {
+            return this.stops;
+        }
+    }
+
+    /**
+     * Determines some statistics on the size of the given tours and stores them as params
+     * in the given @{link {@link TelemetryEventBuilder}.
+     */
+    public static TelemetryParamSource determineSize(final List<? extends Tour> tours) {
+        return new TelemetryParamSource() {
+            @Override
+            public void addParams(TelemetryEventBuilder event) {
+                if (tours == null) {
+                    event.param("cntTours", "-1");
+                    return;
+                }
+
+                int numberOfStops = 0;
+                int numberOfFragments = 0;
+                int numberOfAddedLines = 0;
+                int numberOfRemovedLines = 0;
+                int numberOfStopsRel = 0;
+                int numberOfFragmentsRel = 0;
+                int numberOfAddedLinesRel = 0;
+                int numberOfRemovedLinesRel = 0;
+                for (final Tour t : tours) {
+                    numberOfStops += t.getNumberOfStops(false);
+                    numberOfFragments += t.getNumberOfFragments(false);
+                    numberOfAddedLines += t.getNumberOfAddedLines(false);
+                    numberOfRemovedLines += t.getNumberOfRemovedLines(false);
+                    numberOfStopsRel += t.getNumberOfStops(true);
+                    numberOfFragmentsRel += t.getNumberOfFragments(true);
+                    numberOfAddedLinesRel += t.getNumberOfAddedLines(true);
+                    numberOfRemovedLinesRel += t.getNumberOfRemovedLines(true);
+                }
+                event.param("cntTours", tours.size());
+                event.param("cntStops", numberOfStops);
+                event.param("cntFragments", numberOfFragments);
+                event.param("cntAddedLines", numberOfAddedLines);
+                event.param("cntRemovedLines", numberOfRemovedLines);
+                event.param("cntStopsRel", numberOfStopsRel);
+                event.param("cntFragmentsRel", numberOfFragmentsRel);
+                event.param("cntAddedLinesRel", numberOfAddedLinesRel);
+                event.param("cntRemovedLinesRel", numberOfRemovedLinesRel);
+            }
+        };
     }
 
 }

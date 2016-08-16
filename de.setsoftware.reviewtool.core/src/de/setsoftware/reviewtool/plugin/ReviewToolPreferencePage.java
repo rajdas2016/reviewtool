@@ -7,10 +7,12 @@ import java.util.Set;
 
 import javax.xml.parsers.ParserConfigurationException;
 
+import org.eclipse.equinox.security.storage.ISecurePreferences;
+import org.eclipse.equinox.security.storage.SecurePreferencesFactory;
+import org.eclipse.equinox.security.storage.StorageException;
 import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.jface.preference.FieldEditor;
 import org.eclipse.jface.preference.FileFieldEditor;
-import org.eclipse.jface.preference.IPreferenceStore;
 import org.eclipse.jface.preference.PreferencePage;
 import org.eclipse.jface.util.IPropertyChangeListener;
 import org.eclipse.jface.util.PropertyChangeEvent;
@@ -64,7 +66,7 @@ public class ReviewToolPreferencePage extends PreferencePage
         parentComposite.setFont(parent.getFont());
 
         this.fileField = new FileFieldEditor(
-                TEAM_CONFIG_FILE, "Datei mit Team-Einstellungen", parentComposite);
+                TEAM_CONFIG_FILE, "File with team config", parentComposite);
         this.initField(this.fileField);
 
         this.userParamTable = new Table(parentComposite, SWT.BORDER);
@@ -140,6 +142,14 @@ public class ReviewToolPreferencePage extends PreferencePage
         return parentComposite;
     }
 
+    static ISecurePreferences getSecurePreferences() throws StorageException {
+        final ISecurePreferences pref = SecurePreferencesFactory.getDefault().node("de.setsoftware.reviewtool");
+        if (getPref(pref, ConfigurationInterpreter.USER_PARAM_NAME).equals("")) {
+            putPref(pref, ConfigurationInterpreter.USER_PARAM_NAME, System.getProperty("user.name"));
+        }
+        return pref;
+    }
+
     private void createUserTableItems() {
         try {
             final Set<String> userFieldNames = new ConfigurationInterpreter().getUserSpecificParamNames(
@@ -147,11 +157,12 @@ public class ReviewToolPreferencePage extends PreferencePage
             for (final String userFieldName : userFieldNames) {
                 final TableItem item1 = new TableItem(this.userParamTable, SWT.NONE);
                 item1.setText(new String[] { userFieldName,
-                        this.getPreferenceStore().getString(USER_PARAM_PREFIX + userFieldName) });
+                        getSecurePreferences().get(USER_PARAM_PREFIX + userFieldName, "") });
             }
-        } catch (final IOException | SAXException | ParserConfigurationException | ReviewtoolException e) {
-            MessageDialog.openError(this.getShell(), "Fehler beim Laden",
-                    "Die Team-Konfiguration konnte nicht geladen werden: " + e.getMessage());
+        } catch (final IOException | SAXException | ParserConfigurationException
+                | ReviewtoolException | StorageException e) {
+            MessageDialog.openError(this.getShell(), "Error while loading CoRT config",
+                    "The team configuration could not be loaded: " + e.getMessage());
             Logger.error("error while loading team config", e);
         }
     }
@@ -176,7 +187,7 @@ public class ReviewToolPreferencePage extends PreferencePage
     @Override
     public void init(IWorkbench workbench) {
         this.setPreferenceStore(Activator.getDefault().getPreferenceStore());
-        this.setDescription("Einstellungen für das Review-Tool");
+        this.setDescription("Settings for the CoRT code review tool");
     }
 
 
@@ -197,7 +208,7 @@ public class ReviewToolPreferencePage extends PreferencePage
     protected void performDefaults() {
         this.fileField.loadDefault();
         for (final TableItem item : this.userParamTable.getItems()) {
-            item.setText(1, this.getPreferenceStore().getDefaultString(USER_PARAM_PREFIX + item.getText(0)));
+            item.setText(1, "");
         }
         super.performDefaults();
     }
@@ -205,10 +216,24 @@ public class ReviewToolPreferencePage extends PreferencePage
     @Override
     public boolean performOk() {
         this.fileField.store();
-        for (final TableItem item : this.userParamTable.getItems()) {
-            this.getPreferenceStore().setValue(USER_PARAM_PREFIX + item.getText(0), item.getText(1));
+        try {
+            final ISecurePreferences prefs = getSecurePreferences();
+            for (final TableItem item : this.userParamTable.getItems()) {
+                putPref(prefs, item.getText(0), item.getText(1));
+            }
+        } catch (final StorageException e) {
+            MessageDialog.openError(this.getShell(), "Error while storing user config",
+                    "The user config could not be stored: " + e.getMessage());
+            Logger.error("error while storing user config", e);
         }
+        //there seems to be no way to listen for changes in secure preferences.
+        //  As a (little hacky but simple) workaround we store a dummy setting that will trigger the reconfigure
+        this.getPreferenceStore().setValue("triggerDummy", Math.random());
         return true;
+    }
+
+    private static void putPref(ISecurePreferences pref, String key, String value) throws StorageException {
+        pref.put(USER_PARAM_PREFIX + key, value, true);
     }
 
     @Override
@@ -221,13 +246,21 @@ public class ReviewToolPreferencePage extends PreferencePage
     /**
      * Extracts all user specific parameters used in the given config from the given preference store.
      */
-    public static Map<String, String> getUserParams(Document config, IPreferenceStore pref) {
+    public static Map<String, String> getUserParams(Document config, ISecurePreferences pref) throws StorageException {
         final Set<String> names = new ConfigurationInterpreter().getUserSpecificParamNames(config);
         final Map<String, String> params = new HashMap<>();
         for (final String name : names) {
-            params.put(name, pref.getString(USER_PARAM_PREFIX + name));
+            params.put(name, getPref(pref, name));
         }
         return params;
+    }
+
+    private static String getPref(ISecurePreferences pref, final String name) throws StorageException {
+        return pref.get(USER_PARAM_PREFIX + name, "");
+    }
+
+    public static String getUserIdPref() throws StorageException {
+        return getPref(getSecurePreferences(), ConfigurationInterpreter.USER_PARAM_NAME);
     }
 
 }

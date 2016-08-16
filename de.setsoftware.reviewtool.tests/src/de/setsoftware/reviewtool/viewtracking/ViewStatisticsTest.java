@@ -7,8 +7,8 @@ import java.util.Collections;
 
 import org.junit.Test;
 
+import de.setsoftware.reviewtool.model.changestructure.ChangestructureFactory;
 import de.setsoftware.reviewtool.model.changestructure.FileInRevision;
-import de.setsoftware.reviewtool.model.changestructure.LocalRevision;
 import de.setsoftware.reviewtool.model.changestructure.Stop;
 import de.setsoftware.reviewtool.model.changestructure.StubRepo;
 import de.setsoftware.reviewtool.model.changestructure.Tour;
@@ -34,9 +34,9 @@ public class ViewStatisticsTest {
     }
 
     private static Stop stop(String string) {
-        final FileInRevision file = new FileInRevision(
-                string, new LocalRevision(), new StubRepo());
-        return new Stop(file, file, file);
+        final FileInRevision file = ChangestructureFactory.createFileInRevision(
+                string, ChangestructureFactory.createLocalRevision(), new StubRepo());
+        return new Stop(file, file, file, false);
     }
 
     private static void doTest(

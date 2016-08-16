@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>de.setsoftware.reviewtool</groupId>
   <artifactId>workspaceReviewtool</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
+  <version>1.0.4-SNAPSHOT</version>
   <packaging>pom</packaging>
     <properties>
         <tycho.version>0.24.0</tycho.version>
@@ -127,6 +127,7 @@
     <modules>
         <module>build-tools</module>
         <module>de.setsoftware.reviewtool.core</module>
+        <module>de.setsoftware.reviewtool.changesources.svn</module>
         <module>de.setsoftware.reviewtool.tests</module>
         <module>de.setsoftware.reviewtool.feature</module>
         <module>de.setsoftware.reviewtool.updatesite</module>

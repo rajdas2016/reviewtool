@@ -15,7 +15,7 @@ public class Fragment {
     private final PositionInText to;
     private final String content;
 
-    public Fragment(FileInRevision file, PositionInText from, PositionInText to, String content) {
+    Fragment(FileInRevision file, PositionInText from, PositionInText to, String content) {
         this.file = file;
         this.from = from;
         this.to = to;
@@ -41,6 +41,18 @@ public class Fragment {
     @Override
     public String toString() {
         return this.from + " - " + this.to + " in " + this.file;
+    }
+
+    /**
+     * Returns true iff this fragments is a direct neighbor of the given other fragment, but
+     * does not overlap with it.
+     */
+    public boolean isNeighboring(Fragment other) {
+        if (!this.file.equals(other.file)) {
+            return false;
+        }
+        return this.to.nextInLine().equals(other.from)
+            || other.to.nextInLine().equals(this.from);
     }
 
     /**

@@ -8,7 +8,8 @@ public class BinaryChange extends Change {
     private final FileInRevision from;
     private final FileInRevision to;
 
-    public BinaryChange(FileInRevision from, FileInRevision to) {
+    BinaryChange(FileInRevision from, FileInRevision to, boolean irrelevantForReview) {
+        super(irrelevantForReview);
         this.from = from;
         this.to = to;
     }
@@ -24,5 +25,13 @@ public class BinaryChange extends Change {
 
     public FileInRevision getTo() {
         return this.to;
+    }
+
+    @Override
+    protected BinaryChange makeIrrelevant() {
+        if (this.isIrrelevantForReview()) {
+            return this;
+        }
+        return new BinaryChange(this.from, this.to, true);
     }
 }

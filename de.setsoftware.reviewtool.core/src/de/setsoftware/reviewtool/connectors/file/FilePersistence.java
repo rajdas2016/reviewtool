@@ -9,8 +9,10 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 
 import de.setsoftware.reviewtool.base.ReviewtoolException;
 import de.setsoftware.reviewtool.model.EndTransition;
@@ -41,6 +43,20 @@ public class FilePersistence implements IReviewPersistence {
 
         public TicketDir(File file) {
             this.ticketDir = file;
+            if (!this.ticketDir.exists()) {
+                try {
+                    this.createDummyDir();
+                } catch (final IOException e) {
+                    throw new ReviewtoolException(e);
+                }
+            }
+        }
+
+        private void createDummyDir() throws IOException {
+            this.ticketDir.mkdir();
+            Files.write(this.ticketDir.toPath().resolve("ticket.properties"),
+                    ("description=Testticket " + (int) (Math.random() * 1000) + "\ncomponent=Main").getBytes());
+            Files.createFile(this.ticketDir.toPath().resolve("state.readyForReview"));
         }
 
         @Override
@@ -103,13 +119,23 @@ public class FilePersistence implements IReviewPersistence {
     }
 
     @Override
-    public List<TicketInfo> getReviewableTickets() {
-        return this.getTicketsWithState(READY_FOR_REVIEW, IN_REVIEW);
+    public Set<String> getFilterNamesForReview() {
+        return Collections.singleton("Reviewable");
     }
 
     @Override
-    public List<TicketInfo> getFixableTickets() {
-        return this.getTicketsWithState(REJECTED, IN_IMPLEMENTATION);
+    public Set<String> getFilterNamesForFixing() {
+        return Collections.singleton("Fixable");
+    }
+
+    @Override
+    public List<TicketInfo> getTicketsForFilter(String filterName) {
+        if (filterName.equals("Reviewable")) {
+            return this.getTicketsWithState(READY_FOR_REVIEW, IN_REVIEW);
+        } else if (filterName.equals("Fixable")) {
+            return this.getTicketsWithState(REJECTED, IN_IMPLEMENTATION);
+        }
+        return Collections.emptyList();
     }
 
     private List<TicketInfo> getTicketsWithState(String... states) {
@@ -150,8 +176,10 @@ public class FilePersistence implements IReviewPersistence {
                 child.getName(),
                 ticketProperties.getProperty("description", ""),
                 this.getState(child),
+                "?",
                 ticketProperties.getProperty("component", ""),
-                ticketProperties.getProperty("parentSummary"));
+                ticketProperties.getProperty("parentSummary"),
+                new LinkedHashSet<>(new TicketDir(child).readReviewHistory()));
     }
 
     private boolean hasState(File child, String state) {

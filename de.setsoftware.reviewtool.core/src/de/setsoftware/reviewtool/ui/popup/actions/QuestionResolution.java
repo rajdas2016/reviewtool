@@ -21,7 +21,7 @@ public class QuestionResolution implements IMarkerResolution {
 
     @Override
     public String getLabel() {
-        return "Rückfrage";
+        return "Question";
     }
 
     @Override
@@ -31,12 +31,13 @@ public class QuestionResolution implements IMarkerResolution {
             @Override
             public void execute(String text) {
                 try {
-                    review.addComment(text);
+                    review.addComment(ReviewPlugin.getUserPref(), text);
                     review.setResolution(ResolutionType.QUESTION);
                     review.save();
-                    Telemetry.get().resolutionQuestion(
-                            marker.getResource().toString(),
-                            marker.getAttribute(IMarker.LINE_NUMBER, -1));
+                    Telemetry.event("resolutionQuestion")
+                        .param("resource", marker.getResource())
+                        .param("line", marker.getAttribute(IMarker.LINE_NUMBER, -1))
+                        .log();
                 } catch (final CoreException e) {
                     throw new ReviewtoolException(e);
                 }

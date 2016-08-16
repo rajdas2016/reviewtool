@@ -13,6 +13,8 @@ import de.setsoftware.reviewtool.base.Util;
  * A part of a review tour, corresponding to some notion of "singular change".
  * It knows the file fragment it belongs to in the most current revision, but
  * also the changes that it is based on.
+ * <p/>
+ * A stop is immutable.
  */
 public class Stop {
 
@@ -22,10 +24,12 @@ public class Stop {
     private final FileInRevision mostRecentFile;
     private final Fragment mostRecentFragment;
 
+    private final boolean irrelevantForReview;
+
     /**
      * Constructor for textual changes.
      */
-    public Stop(Fragment from, Fragment to, Fragment traceFragment) {
+    public Stop(Fragment from, Fragment to, Fragment traceFragment, boolean irrelevantForReview) {
         this.historyOrder.add(from.getFile());
         this.historyOrder.add(to.getFile());
         this.history.put(from.getFile(), from);
@@ -33,17 +37,21 @@ public class Stop {
 
         this.mostRecentFile = traceFragment.getFile();
         this.mostRecentFragment = traceFragment;
+
+        this.irrelevantForReview = irrelevantForReview;
     }
 
     /**
      * Constructor for binary changes.
      */
-    public Stop(FileInRevision from, FileInRevision to, FileInRevision traceFile) {
+    public Stop(FileInRevision from, FileInRevision to, FileInRevision traceFile, boolean irrelevantForReview) {
         this.historyOrder.add(from);
         this.historyOrder.add(to);
 
         this.mostRecentFile = traceFile;
         this.mostRecentFragment = null;
+
+        this.irrelevantForReview = irrelevantForReview;
     }
 
     /**
@@ -52,11 +60,13 @@ public class Stop {
     private Stop(List<FileInRevision> historyOrder,
             Multimap<FileInRevision, Fragment> history,
             FileInRevision mostRecentFile,
-            Fragment mostRecentFragment) {
+            Fragment mostRecentFragment,
+            boolean irrelevantForReview) {
         this.historyOrder.addAll(historyOrder);
         this.history.putAll(history);
         this.mostRecentFile = mostRecentFile;
         this.mostRecentFragment = mostRecentFragment;
+        this.irrelevantForReview = irrelevantForReview;
     }
 
     public boolean isDetailedFragmentKnown() {
@@ -83,6 +93,8 @@ public class Stop {
      * Return true iff this stop can be merged with the given other stop.
      * Two stops can be merged if they denote the same file and and directly
      * neighboring or overlapping segments of that file (or the whole binary file).
+     * Neighboring segments are only considered mergeable if both are either
+     * irrelevant or relevant.
      */
     public boolean canBeMergedWith(Stop other) {
         if (!this.mostRecentFile.equals(other.mostRecentFile)) {
@@ -98,7 +110,13 @@ public class Stop {
             if (other.mostRecentFragment == null) {
                 return false;
             } else {
-                return this.mostRecentFragment.canBeMergedWith(other.mostRecentFragment);
+                final boolean fragmentsMergeable =
+                        this.mostRecentFragment.canBeMergedWith(other.mostRecentFragment);
+                if (this.irrelevantForReview == other.irrelevantForReview) {
+                    return fragmentsMergeable;
+                } else {
+                    return fragmentsMergeable && !this.mostRecentFragment.isNeighboring(other.mostRecentFragment);
+                }
             }
         }
     }
@@ -123,12 +141,18 @@ public class Stop {
                 mergedHistoryOrder,
                 mergedHistory,
                 this.mostRecentFile,
-                this.mostRecentFragment == null ? null : this.mostRecentFragment.merge(other.mostRecentFragment));
+                this.mostRecentFragment == null ? null : this.mostRecentFragment.merge(other.mostRecentFragment),
+                //the result is only irrelevant if both parts are irrelevant. It would probably be more accurate
+                //  to track which part is relevant and which is not (so that a merge could result in multiple
+                //  stops), but this complicates some algorithms and is only useful for large irrelevant stops,
+                //  which should be quite rare
+                this.irrelevantForReview && other.irrelevantForReview);
     }
 
     @Override
     public String toString() {
-        return "Stop at " + (this.mostRecentFragment != null ? this.mostRecentFragment : this.mostRecentFile);
+        return "Stop " + (this.irrelevantForReview ? "(irr.)" : "") + " at "
+                + (this.mostRecentFragment != null ? this.mostRecentFragment : this.mostRecentFile);
     }
 
     @Override
@@ -145,7 +169,8 @@ public class Stop {
         return this.mostRecentFile.equals(s.mostRecentFile)
             && Util.sameOrEquals(this.mostRecentFragment, s.mostRecentFragment)
             && this.historyOrder.equals(s.historyOrder)
-            && this.history.equals(s.history);
+            && this.history.equals(s.history)
+            && this.irrelevantForReview == s.irrelevantForReview;
     }
 
     public File getAbsoluteFile() {
@@ -182,6 +207,13 @@ public class Stop {
             ret += f.getNumberOfLines();
         }
         return ret;
+    }
+
+    /**
+     * Returns true if this stop was classified as irrelevant for code review.
+     */
+    public boolean isIrrelevantForReview() {
+        return this.irrelevantForReview;
     }
 
 }

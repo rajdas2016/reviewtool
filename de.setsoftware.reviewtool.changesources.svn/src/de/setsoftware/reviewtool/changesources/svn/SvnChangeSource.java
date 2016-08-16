@@ -35,10 +35,10 @@ import org.tmatesoft.svn.core.wc.SVNRevision;
 
 import de.setsoftware.reviewtool.base.Pair;
 import de.setsoftware.reviewtool.base.ReviewtoolException;
+import de.setsoftware.reviewtool.diffalgorithms.DiffAlgorithmFactory;
 import de.setsoftware.reviewtool.diffalgorithms.IDiffAlgorithm;
-import de.setsoftware.reviewtool.diffalgorithms.SimpleTextDiffAlgorithm;
-import de.setsoftware.reviewtool.model.changestructure.BinaryChange;
 import de.setsoftware.reviewtool.model.changestructure.Change;
+import de.setsoftware.reviewtool.model.changestructure.ChangestructureFactory;
 import de.setsoftware.reviewtool.model.changestructure.Commit;
 import de.setsoftware.reviewtool.model.changestructure.FileInRevision;
 import de.setsoftware.reviewtool.model.changestructure.Fragment;
@@ -46,7 +46,6 @@ import de.setsoftware.reviewtool.model.changestructure.IChangeSource;
 import de.setsoftware.reviewtool.model.changestructure.IChangeSourceUi;
 import de.setsoftware.reviewtool.model.changestructure.IFragmentTracer;
 import de.setsoftware.reviewtool.model.changestructure.RepoRevision;
-import de.setsoftware.reviewtool.model.changestructure.TextualChangeHunk;
 
 /**
  * A simple change source that loads the changes from subversion.
@@ -59,7 +58,6 @@ public class SvnChangeSource implements IChangeSource {
     private final Set<File> workingCopyRoots;
     private final String logMessagePattern;
     private final SVNClientManager mgr = SVNClientManager.newInstance();
-    private final IDiffAlgorithm diffAlgorithm = new SimpleTextDiffAlgorithm();
 
     public SvnChangeSource(
             List<File> projectRoots, String logMessagePattern, String user, String pwd) {
@@ -68,7 +66,7 @@ public class SvnChangeSource implements IChangeSource {
         this.workingCopyRoots = this.determineWorkingCopyRoots(projectRoots);
 
         this.logMessagePattern = logMessagePattern;
-        //test that the pattern can be parsed
+        //check that the pattern can be parsed
         this.createPatternForKey("TEST-123");
     }
 
@@ -239,7 +237,7 @@ public class SvnChangeSource implements IChangeSource {
 
     private Commit convertToCommit(Pair<SvnRepo, SVNLogEntry> e) throws SVNException, IOException {
         final SVNLogEntry log = e.getSecond();
-        return new Commit(
+        return ChangestructureFactory.createCommit(
                 String.format("%s (Rev. %s, %s)", log.getMessage(), log.getRevision(), log.getAuthor()),
                 this.determineChangesInCommit(e));
     }
@@ -248,20 +246,23 @@ public class SvnChangeSource implements IChangeSource {
             throws SVNException, IOException {
         final List<Change> ret = new ArrayList<>();
         final SVNRevision revision = SVNRevision.create(e.getSecond().getRevision());
-        final Set<String> moveSources = this.determineMoveSources(e.getSecond().getChangedPaths().values());
-        for (final Entry<String, SVNLogEntryPath> entry : e.getSecond().getChangedPaths().entrySet()) {
-            if (entry.getValue().getKind() != SVNNodeKind.FILE) {
+        final Map<String, SVNLogEntryPath> changedPaths = e.getSecond().getChangedPaths();
+        final Set<String> moveSources = this.determineMoveSources(changedPaths.values());
+        final List<String> sortedPaths = new ArrayList<>(changedPaths.keySet());
+        Collections.sort(sortedPaths);
+        for (final String path : sortedPaths) {
+            final SVNLogEntryPath value = changedPaths.get(path);
+            if (value.getKind() != SVNNodeKind.FILE) {
                 continue;
             }
-            if (moveSources.contains(entry.getValue().getPath())) {
+            if (moveSources.contains(value.getPath())) {
                 //Moves are contained twice, as a copy and a deletion. The deletion shall not result in a fragment.
                 continue;
             }
-            if (this.isBinaryFile(e.getFirst(), entry.getValue(), e.getSecond().getRevision())) {
-                ret.add(this.createBinaryChange(revision, entry.getValue(), e.getFirst()));
+            if (this.isBinaryFile(e.getFirst(), value, e.getSecond().getRevision())) {
+                ret.add(this.createBinaryChange(revision, value, e.getFirst()));
             } else {
-                ret.addAll(this.determineChangesInFile(
-                        revision, e.getFirst(), entry.getValue()));
+                ret.addAll(this.determineChangesInFile(revision, e.getFirst(), value));
             }
         }
         return ret;
@@ -270,18 +271,18 @@ public class SvnChangeSource implements IChangeSource {
     private Change createBinaryChange(SVNRevision revision, SVNLogEntryPath entryInfo, SvnRepo repo) {
         final String oldPath = this.determineOldPath(entryInfo);
         final FileInRevision oldFileInfo =
-                new FileInRevision(oldPath, this.previousRevision(revision), repo);
+                ChangestructureFactory.createFileInRevision(oldPath, this.previousRevision(revision), repo);
         final FileInRevision newFileInfo =
-                new FileInRevision(entryInfo.getPath(), this.revision(revision), repo);
-        return new BinaryChange(oldFileInfo, newFileInfo);
+                ChangestructureFactory.createFileInRevision(entryInfo.getPath(), this.revision(revision), repo);
+        return ChangestructureFactory.createBinaryChange(oldFileInfo, newFileInfo, false);
     }
 
     private RepoRevision revision(SVNRevision revision) {
-        return new RepoRevision(revision.getNumber());
+        return ChangestructureFactory.createRepoRevision(revision.getNumber());
     }
 
     private RepoRevision previousRevision(SVNRevision revision) {
-        return new RepoRevision(revision.getNumber() - 1);
+        return ChangestructureFactory.createRepoRevision(revision.getNumber() - 1);
     }
 
     private List<Change> determineChangesInFile(SVNRevision revision, SvnRepo repoUrl, SVNLogEntryPath entryInfo)
@@ -298,18 +299,21 @@ public class SvnChangeSource implements IChangeSource {
 
 
         final FileInRevision oldFileInfo =
-                new FileInRevision(oldPath, this.previousRevision(revision), repoUrl);
+                ChangestructureFactory.createFileInRevision(oldPath, this.previousRevision(revision), repoUrl);
+        //in case of deletions, the path is null, but FileInRevision does not allow null paths
+        final String newPath = entryInfo.getPath() != null ? entryInfo.getPath() : oldPath;
         final FileInRevision newFileInfo =
-                new FileInRevision(entryInfo.getPath(), this.revision(revision), repoUrl);
+                ChangestructureFactory.createFileInRevision(newPath, this.revision(revision), repoUrl);
         final List<Change> ret = new ArrayList<>();
-        final List<Pair<Fragment, Fragment>> changes = this.diffAlgorithm.determineDiff(
+        final IDiffAlgorithm diffAlgorithm = DiffAlgorithmFactory.createDefault();
+        final List<Pair<Fragment, Fragment>> changes = diffAlgorithm.determineDiff(
                 oldFileInfo,
                 oldFileContent,
                 newFileInfo,
                 newFileContent,
                 this.guessEncoding(oldFileContent, newFileContent));
         for (final Pair<Fragment, Fragment> pos : changes) {
-            ret.add(new TextualChangeHunk(pos.getFirst(), pos.getSecond()));
+            ret.add(ChangestructureFactory.createTextualChangeHunk(pos.getFirst(), pos.getSecond(), false));
         }
         return ret;
     }
@@ -319,17 +323,18 @@ public class SvnChangeSource implements IChangeSource {
             return false;
         }
         final int max = Math.min(128, fileContent.length);
-        int strangeCharCount = 0;
         for (int i = 0; i < max; i++) {
             if (this.isStrangeChar(fileContent[i])) {
-                strangeCharCount++;
+                //we only count ASCII control chars as "strange" (to be UTF-8 agnostic), so
+                //  a single strange char should suffice to declare a file non-text
+                return true;
             }
         }
-        return strangeCharCount > 3;
+        return false;
     }
 
     private boolean isStrangeChar(byte b) {
-        return b != '\n' && b != '\r' && b != '\t' && (b < 0x20 || b > 0x80);
+        return b != '\n' && b != '\r' && b != '\t' && b < 0x20 && b >= 0;
     }
 
     private String determineOldPath(SVNLogEntryPath entryInfo) {
@@ -400,7 +405,7 @@ public class SvnChangeSource implements IChangeSource {
 
     @Override
     public IFragmentTracer createTracer() {
-        return new SvnFragmentTracer();
+        return new SvnFragmentTracer(this.mgr);
     }
 
 }

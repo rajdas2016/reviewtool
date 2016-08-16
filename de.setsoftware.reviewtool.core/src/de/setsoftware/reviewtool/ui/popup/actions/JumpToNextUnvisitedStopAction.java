@@ -11,8 +11,9 @@ import org.eclipse.ui.handlers.HandlerUtil;
 import de.setsoftware.reviewtool.model.changestructure.Stop;
 import de.setsoftware.reviewtool.model.changestructure.Tour;
 import de.setsoftware.reviewtool.model.changestructure.ToursInReview;
+import de.setsoftware.reviewtool.plugin.ReviewPlugin;
+import de.setsoftware.reviewtool.ui.dialogs.RealMarkerFactory;
 import de.setsoftware.reviewtool.ui.views.CurrentStop;
-import de.setsoftware.reviewtool.ui.views.RealMarkerFactory;
 import de.setsoftware.reviewtool.ui.views.ReviewContentView;
 import de.setsoftware.reviewtool.ui.views.ViewDataSource;
 import de.setsoftware.reviewtool.viewtracking.TrackerManager;
@@ -27,13 +28,14 @@ public class JumpToNextUnvisitedStopAction extends AbstractHandler {
     @Override
     public Object execute(ExecutionEvent event) throws ExecutionException {
         final Shell shell = HandlerUtil.getActiveShell(event);
-        final ToursInReview tours = ViewDataSource.get().getToursInReview();
+        final ToursInReview tours = this.getToursAndStartReviewIfNecessary();
         final ViewStatistics stats = TrackerManager.get().getStatistics();
         if (tours == null || stats == null) {
-            MessageDialog.openInformation(shell, "Kein aktives Review",
-                    "Kein aktives Review");
+            MessageDialog.openInformation(shell, "No active review",
+                    "No active review");
             return null;
         }
+
 
         final Stop nextStop = stats.getNextUnvisitedStop(
                 tours,
@@ -47,25 +49,38 @@ public class JumpToNextUnvisitedStopAction extends AbstractHandler {
                         } catch (final CoreException e) {
                             throw new RuntimeException(e);
                         }
-                        MessageDialog.openInformation(shell, "Wechsel der Tour",
-                                "Beginn einer neuen Tour:\n" + tour.getDescription());
+                        MessageDialog.openInformation(shell, "Change of review tour",
+                                "Start of a new tour:\n" + tour.getDescription());
                     }
 
                     @Override
                     public void wrappedAround() {
-                        MessageDialog.openInformation(shell, "Ende der letzten Tour",
-                                "Es wurde das Ende der letzten Tour erreicht und neu von vorne begonnen.");
+                        MessageDialog.openInformation(shell, "End of last tour",
+                                "The end of the last tour has been reached and CoRT wrapped around to the beginning.");
                     }
 
                 });
         if (nextStop == null) {
-            MessageDialog.openInformation(shell, "Keine weiteren Stops",
-                    "Es gibt keine weiteren Stops, die noch nicht betrachtet wurden.");
+            MessageDialog.openInformation(shell, "No further stops",
+                    "There are no relevant stops left that have not been visited.");
             return null;
         }
 
-        ReviewContentView.jumpTo(tours, tours.getActiveTour(), nextStop);
+        ReviewContentView.jumpTo(tours, tours.getActiveTour(), nextStop, "next");
         return null;
+    }
+
+    private ToursInReview getToursAndStartReviewIfNecessary() throws ExecutionException {
+        final ToursInReview tours = ViewDataSource.get().getToursInReview();
+        if (tours != null) {
+            return tours;
+        }
+        try {
+            ReviewPlugin.getInstance().startReview();
+        } catch (final CoreException e) {
+            throw new ExecutionException("error while selecting ticket", e);
+        }
+        return ViewDataSource.get().getToursInReview();
     }
 
 }

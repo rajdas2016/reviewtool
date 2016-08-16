@@ -1,12 +1,11 @@
 package de.setsoftware.reviewtool.plugin;
 
 import org.eclipse.core.runtime.Status;
-import org.eclipse.jface.preference.IPreferenceStore;
+import org.eclipse.jface.preference.IPersistentPreferenceStore;
 import org.eclipse.ui.plugin.AbstractUIPlugin;
 import org.osgi.framework.BundleContext;
 
 import de.setsoftware.reviewtool.base.Logger;
-import de.setsoftware.reviewtool.config.ConfigurationInterpreter;
 import de.setsoftware.reviewtool.model.changestructure.ToursInReview;
 import de.setsoftware.reviewtool.ui.dialogs.DialogHelper;
 import de.setsoftware.reviewtool.ui.views.ReviewModeListener;
@@ -35,7 +34,7 @@ public class Activator extends AbstractUIPlugin {
                         new Status(status, Activator.this.getBundle().getSymbolicName(), message, exception));
             }
         });
-        DialogHelper.setPreferenceStore(this.getPreferenceStore());
+        DialogHelper.setPreferenceStore((IPersistentPreferenceStore) this.getPreferenceStore());
         ViewDataSource.setInstance(new ViewDataSource() {
             @Override
             public void registerListener(ReviewModeListener l) {
@@ -47,15 +46,6 @@ public class Activator extends AbstractUIPlugin {
                 return ReviewPlugin.getInstance().getTours();
             }
         });
-        this.initializeDefaultPreferences();
-    }
-
-    /**
-     * Sets the default values for the preference store.
-     */
-    public void initializeDefaultPreferences() {
-        final IPreferenceStore store = this.getPreferenceStore();
-        store.setDefault(ConfigurationInterpreter.USER_PARAM_NAME, System.getProperty("user.name"));
     }
 
     @Override

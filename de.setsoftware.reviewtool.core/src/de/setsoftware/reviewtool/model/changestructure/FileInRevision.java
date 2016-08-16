@@ -24,7 +24,7 @@ public class FileInRevision {
     private final Repository repo;
     private Path localPath;
 
-    public FileInRevision(String path, Revision revision, Repository repository) {
+    FileInRevision(String path, Revision revision, Repository repository) {
         this.path = path;
         this.revision = revision;
         this.repo = repository;
@@ -65,7 +65,8 @@ public class FileInRevision {
             if (!(resource instanceof IWorkspaceRoot)) {
                 //perhaps too much was dropped and a different file then the intended returned
                 //  therefore double check by using the inverse lookup
-                final String shortName = PositionTransformer.toPosition(resource, 1).getShortFileName();
+                final String shortName = PositionTransformer.toPosition(
+                        resource.getFullPath(), 1, resource.getWorkspace()).getShortFileName();
                 if (partOfPath.contains(shortName)) {
                     return resource;
                 }

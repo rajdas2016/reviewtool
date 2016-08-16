@@ -32,35 +32,43 @@ public class EndReviewDialog extends Dialog {
     private List<Button> radioButtons;
     private EndTransition typeOfEnd;
     private Text textField;
+    private final List<EndReviewExtension> endReviewExtensions;
+    private final List<EndReviewExtensionData> endReviewExtensionData = new ArrayList<>();
 
     protected EndReviewDialog(
             Shell parentShell,
             ReviewStateManager persistence,
             ReviewData reviewData,
-            List<EndTransition> endTransitions) {
+            List<EndTransition> endTransitions,
+            List<EndReviewExtension> endReviewExtensions) {
         super(parentShell);
         this.setShellStyle(this.getShellStyle() | SWT.RESIZE);
         this.persistence = persistence;
         this.reviewData = reviewData;
         this.possibleChoices = endTransitions;
+        this.endReviewExtensions = endReviewExtensions;
     }
 
     @Override
     protected void configureShell(Shell newShell) {
         super.configureShell(newShell);
-        newShell.setText("Review beenden - " + this.persistence.getCurrentTicketData().getTicketInfo().getId());
-        DialogHelper.restoreSavedSize(newShell, this, 500, 500);
+        newShell.setText("End review - " + this.persistence.getCurrentTicketData().getTicketInfo().getId());
+        DialogHelper.restoreSavedSize(newShell, this, 500, 700);
     }
 
     @Override
     protected Control createDialogArea(Composite parent) {
         final Composite comp = (Composite) super.createDialogArea(parent);
 
+        this.textField = new Text(comp, SWT.MULTI | SWT.BORDER | SWT.RESIZE | SWT.WRAP | SWT.H_SCROLL | SWT.V_SCROLL);
+        this.textField.setText(this.reviewData.serialize());
+        this.textField.setLayoutData(new GridData(GridData.FILL_BOTH));
+
         final GridLayout layout = (GridLayout) comp.getLayout();
         layout.numColumns = 1;
 
         final Group buttonGroup = new Group(comp, SWT.NONE);
-        buttonGroup.setText("Art des Abschlusses");
+        buttonGroup.setText("Kind of end");
         final GridLayout gridLayout = new GridLayout();
         gridLayout.numColumns = 1;
         buttonGroup.setLayout(gridLayout);
@@ -87,9 +95,9 @@ public class EndReviewDialog extends Dialog {
             this.selectFirstButtonWithType(EndTransition.Type.OK);
         }
 
-        this.textField = new Text(comp, SWT.MULTI | SWT.BORDER | SWT.RESIZE);
-        this.textField.setText(this.reviewData.serialize());
-        this.textField.setLayoutData(new GridData(GridData.FILL_BOTH));
+        for (final EndReviewExtension ext : this.endReviewExtensions) {
+            this.endReviewExtensionData.add(ext.createControls(comp));
+        }
 
         return comp;
     }
@@ -98,6 +106,7 @@ public class EndReviewDialog extends Dialog {
         for (final Button b : this.radioButtons) {
             if (((EndTransition) b.getData()).getType() == type) {
                 b.setSelection(true);
+                b.setFocus();
                 break;
             }
         }
@@ -109,6 +118,12 @@ public class EndReviewDialog extends Dialog {
             if (b.getSelection()) {
                 this.typeOfEnd = (EndTransition) b.getData();
                 break;
+            }
+        }
+        for (final EndReviewExtensionData extData : this.endReviewExtensionData) {
+            final boolean cancel = extData.okPressed(this.typeOfEnd);
+            if (cancel) {
+                return;
             }
         }
         this.persistence.saveCurrentReviewData(this.textField.getText());
@@ -127,14 +142,14 @@ public class EndReviewDialog extends Dialog {
      * If the user decides to continue reviewing, null is returned.
      */
     public static EndTransition selectTypeOfEnd(
-            ReviewStateManager persistence, ReviewData reviewData) {
+            ReviewStateManager persistence, ReviewData reviewData, List<EndReviewExtension> extensions) {
         final Shell s = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell();
 
         final List<EndTransition> endTransitions = new ArrayList<>();
         endTransitions.add(new EndTransition("Pause", null, EndTransition.Type.PAUSE));
         endTransitions.addAll(persistence.getPossibleTransitionsForReviewEnd());
         final EndReviewDialog dialog =
-                new EndReviewDialog(s, persistence, reviewData, endTransitions);
+                new EndReviewDialog(s, persistence, reviewData, endTransitions, extensions);
         final int ret = dialog.open();
         if (ret != OK) {
             return null;

@@ -24,7 +24,7 @@ public class WontFixResolution implements IMarkerResolution {
 
     @Override
     public String getLabel() {
-        return "Ablehnen";
+        return "Refuse fixing";
     }
 
     @Override
@@ -34,12 +34,13 @@ public class WontFixResolution implements IMarkerResolution {
             @Override
             public void execute(String text) {
                 try {
-                    review.addComment(text);
+                    review.addComment(ReviewPlugin.getUserPref(), text);
                     review.setResolution(ResolutionType.WONT_FIX);
                     review.save();
-                    Telemetry.get().resolutionWontFix(
-                            marker.getResource().toString(),
-                            marker.getAttribute(IMarker.LINE_NUMBER, -1));
+                    Telemetry.event("resolutionWontFix")
+                        .param("resource", marker.getResource())
+                        .param("line", marker.getAttribute(IMarker.LINE_NUMBER, -1))
+                        .log();
                 } catch (final CoreException e) {
                     throw new ReviewtoolException(e);
                 }
